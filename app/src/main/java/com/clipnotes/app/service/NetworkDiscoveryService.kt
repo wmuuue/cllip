@@ -7,6 +7,8 @@ import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.*
+import java.net.InetAddress
+import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
 import kotlinx.coroutines.*
@@ -23,6 +25,7 @@ class NetworkDiscoveryService(private val context: Context) {
     private var serverSocket: ServerSocket? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var myRegisteredServiceName: String? = null
+    private var myServerPort: Int = 0
 
     private val _discoveredDevices = MutableStateFlow<List<DeviceInfo>>(emptyList())
     val discoveredDevices: StateFlow<List<DeviceInfo>> = _discoveredDevices
@@ -40,8 +43,44 @@ class NetworkDiscoveryService(private val context: Context) {
         val deviceId: String
     )
 
+    private fun getLocalIpAddresses(): Set<String> {
+        val addresses = mutableSetOf<String>()
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val networkInterface = interfaces.nextElement()
+                val inetAddresses = networkInterface.inetAddresses
+                while (inetAddresses.hasMoreElements()) {
+                    val inetAddress = inetAddresses.nextElement()
+                    if (!inetAddress.isLoopbackAddress) {
+                        val hostAddress = inetAddress.hostAddress
+                        if (hostAddress != null) {
+                            addresses.add(hostAddress)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting local IP addresses", e)
+        }
+        return addresses
+    }
+
+    private fun isOwnDevice(host: String, port: Int, serviceName: String): Boolean {
+        if (serviceName == myRegisteredServiceName) {
+            return true
+        }
+        
+        if (port == myServerPort && getLocalIpAddresses().contains(host)) {
+            return true
+        }
+        
+        return false
+    }
+
     fun registerService(port: Int) {
         nsdManager = context.getSystemService(Context.NSD_SERVICE) as NsdManager
+        myServerPort = port
 
         val serviceInfo = NsdServiceInfo().apply {
             serviceName = SERVICE_NAME
@@ -72,7 +111,11 @@ class NetworkDiscoveryService(private val context: Context) {
     }
 
     fun discoverServices() {
-        nsdManager = context.getSystemService(Context.NSD_SERVICE) as NsdManager
+        _discoveredDevices.value = emptyList()
+        
+        if (nsdManager == null) {
+            nsdManager = context.getSystemService(Context.NSD_SERVICE) as NsdManager
+        }
 
         discoveryListener = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(regType: String) {
@@ -81,13 +124,20 @@ class NetworkDiscoveryService(private val context: Context) {
 
             override fun onServiceFound(service: NsdServiceInfo) {
                 Log.d(TAG, "Service found: ${service.serviceName}")
-                if (service.serviceType == SERVICE_TYPE && service.serviceName != myRegisteredServiceName) {
+                if (service.serviceType == SERVICE_TYPE) {
+                    if (myRegisteredServiceName != null && service.serviceName == myRegisteredServiceName) {
+                        Log.d(TAG, "Skipping own service by name: ${service.serviceName}")
+                        return
+                    }
                     resolveService(service)
                 }
             }
 
             override fun onServiceLost(service: NsdServiceInfo) {
                 Log.d(TAG, "Service lost: ${service.serviceName}")
+                val currentList = _discoveredDevices.value.toMutableList()
+                currentList.removeAll { it.deviceId == service.serviceName }
+                _discoveredDevices.value = currentList
             }
 
             override fun onDiscoveryStopped(serviceType: String) {
@@ -115,12 +165,22 @@ class NetworkDiscoveryService(private val context: Context) {
             }
 
             override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
-                Log.d(TAG, "Resolve succeeded: ${serviceInfo.host}")
+                val hostAddress = serviceInfo.host.hostAddress ?: ""
+                val port = serviceInfo.port
+                val serviceName = serviceInfo.serviceName
+                
+                Log.d(TAG, "Resolve succeeded: $hostAddress:$port ($serviceName)")
+                
+                if (isOwnDevice(hostAddress, port, serviceName)) {
+                    Log.d(TAG, "Skipping own device: $hostAddress:$port")
+                    return
+                }
+                
                 val device = DeviceInfo(
-                    name = serviceInfo.serviceName,
-                    host = serviceInfo.host.hostAddress ?: "",
-                    port = serviceInfo.port,
-                    deviceId = serviceInfo.serviceName
+                    name = serviceName,
+                    host = hostAddress,
+                    port = port,
+                    deviceId = serviceName
                 )
                 val currentList = _discoveredDevices.value.toMutableList()
                 if (!currentList.any { it.deviceId == device.deviceId }) {
@@ -137,6 +197,7 @@ class NetworkDiscoveryService(private val context: Context) {
         scope.launch {
             try {
                 serverSocket = ServerSocket(port)
+                myServerPort = port
                 registerService(port)
 
                 while (isActive) {
