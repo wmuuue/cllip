@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">剪贴板笔记</string>
+    <string name="add_note">添加笔记</string>
+    <string name="record_audio">录音</string>
+    <string name="settings">设置</string>
+    <string name="send">发送</string>
+    <string name="clear">清空</string>
+    <string name="floating_icon">浮动图标</string>
+    <string name="color_settings">颜色设置</string>
+    <string name="clipboard_text_color">剪贴板文字颜色</string>
+    <string name="user_input_text_color">用户输入文字颜色</string>
+    <string name="change_color">更改</string>
+    <string name="accessibility_service_description">自动保存剪贴板内容到笔记</string>
+    <string name="import_export_settings">导入/导出</string>
+    <string name="export_notes">导出笔记</string>
+    <string name="import_notes">导入笔记</string>
+    <string name="export_success">导出成功：%1$d 条笔记</string>
+    <string name="export_failed">导出失败</string>
+    <string name="import_success">导入成功：%1$d 条笔记</string>
+    <string name="import_failed">导入失败</string>
+    <string name="no_notes_to_export">没有可导出的笔记</string>
+    <string name="import_confirm_title">确认导入</string>
+    <string name="import_confirm_message">导入将会清除现有的文本笔记（录音笔记将保留）。是否继续？</string>
+    <string name="confirm">确认</string>
+    <string name="cancel">取消</string>
+</resources>
